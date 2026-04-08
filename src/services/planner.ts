@@ -40,6 +40,21 @@ function extractJson(text: string) {
   return fenced?.[1] || text;
 }
 
+function messageContentToText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === 'string') return part;
+        if (part && typeof part === 'object' && 'text' in part) return String((part as { text: unknown }).text);
+        return '';
+      })
+      .filter(Boolean)
+      .join('\n');
+  }
+  return '';
+}
+
 function normalizePlans(raw: z.infer<typeof RawPlansSchema>): PlanOption[] {
   return raw.plans.map((plan, planIdx) => {
     const keyToId = new Map<string, string>();
@@ -82,14 +97,16 @@ Dependency values must reference task keys in the same plan.`;
     { role: 'user', content: userPrompt },
   ]);
 
-  const text = resp?.choices?.[0]?.message?.content;
+  const text = messageContentToText(resp?.choices?.[0]?.message?.content);
   if (!text) throw new Error('planning response empty');
 
   let parsed: z.infer<typeof RawPlansSchema>;
   try {
     parsed = RawPlansSchema.parse(JSON.parse(extractJson(String(text))));
   } catch (err) {
-    throw new Error(`planning response did not match expected JSON schema: ${(err as Error).message}`);
+    throw new Error(
+      `planning response did not match expected JSON schema: ${(err as Error).message}. Raw response: ${String(text).slice(0, 800)}`,
+    );
   }
 
   const plans = normalizePlans(parsed);

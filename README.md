@@ -33,7 +33,24 @@
 - `npm run build` verifies the TypeScript backend.
 - `npm run lint` runs ESLint over backend TypeScript.
 - `npm run test:integration` runs the backend integration suite with mocked infrastructure boundaries.
+- `npm run azure:preflight` validates the configured Azure endpoint, API key, chat deployments, and embeddings deployment before a full smoke.
 - `npm run smoke` runs an end-to-end check against a running orchestrator at `SMOKE_BASE_URL` (default `http://localhost:3000`): health, campaign creation, plan generation, approval, WebSocket progress, and memory query.
+
+## Azure Validation Flow
+1) Set real values in `.env` for:
+   `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, `AZURE_DEPLOYMENT_GPT4O`, `AZURE_DEPLOYMENT_GPT4T`, `AZURE_DEPLOYMENT_GPT35`, and `AZURE_DEPLOYMENT_EMBEDDINGS`.
+2) If Azure requires newer API versions in your region, override:
+   `AZURE_OPENAI_API_VERSION_CHAT` and `AZURE_OPENAI_API_VERSION_EMBEDDINGS`.
+3) Run `npm run azure:preflight`.
+   This checks that each configured deployment answers the exact API this app uses: chat completions for planning/execution/extraction and embeddings for memory.
+4) Start the app with `npm run dev`.
+5) Run the live smoke with `npm run smoke`.
+   For protected environments, set `SMOKE_API_TOKEN` or `DISPATCH_API_TOKEN` first.
+
+## Live Failure Triage
+- Chat failures now include the model kind, deployment name, and API version in the thrown error.
+- Embedding failures now include the deployment name and API version in the thrown error.
+- Planner schema failures include the first part of the raw model response so response-shape drift is visible immediately.
 
 ## Mobile
 1) `cd mobile`

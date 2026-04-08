@@ -41,8 +41,12 @@ export const config = {
     outputTokenCents: Number(process.env.COST_PER_OUTPUT_TOKEN_CENTS || 0),
   },
   azure: {
-    endpoint: required('AZURE_OPENAI_ENDPOINT'),
+    endpoint: required('AZURE_OPENAI_ENDPOINT').replace(/\/+$/, ''),
     apiKey: required('AZURE_OPENAI_API_KEY'),
+    apiVersions: {
+      chatCompletions: process.env.AZURE_OPENAI_API_VERSION_CHAT || '2024-02-15-preview',
+      embeddings: process.env.AZURE_OPENAI_API_VERSION_EMBEDDINGS || '2024-02-15-preview',
+    },
     deployments: {
       gpt4o: required('AZURE_DEPLOYMENT_GPT4O'),
       gpt4t: required('AZURE_DEPLOYMENT_GPT4T'),
