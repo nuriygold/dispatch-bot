@@ -15,6 +15,8 @@ export const config = {
   wsPath: process.env.WEB_SOCKET_PATH || '/ws',
   postgresUrl: required('POSTGRES_URL'),
   redisUrl: required('REDIS_URL'),
+  apiToken: process.env.DISPATCH_API_TOKEN || '',
+  adminToken: process.env.DISPATCH_ADMIN_TOKEN || '',
   workspaceRoot: process.env.WORKSPACE_ROOT || process.cwd(),
   httpAllowlist: (process.env.HTTP_ALLOWLIST || '')
     .split(',')
@@ -45,6 +47,7 @@ export const config = {
       gpt4o: required('AZURE_DEPLOYMENT_GPT4O'),
       gpt4t: required('AZURE_DEPLOYMENT_GPT4T'),
       gpt35: required('AZURE_DEPLOYMENT_GPT35'),
+      embeddings: process.env.AZURE_DEPLOYMENT_EMBEDDINGS || process.env.AZURE_DEPLOYMENT_GPT35 || '',
     },
   },
   callbackSecret: required('CALLBACK_SECRET'),

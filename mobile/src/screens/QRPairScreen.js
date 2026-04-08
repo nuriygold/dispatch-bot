@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { View, Text, Button, Alert } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { setBaseUrl, client } from '../lib/api';
-import { connectWs } from '../lib/ws';
+import { setConnection, client } from '../lib/api';
+import { connectWs, withWsToken } from '../lib/ws';
 
 export default function QRPairScreen({ navigation }) {
   const [permission, requestPermission] = useCameraPermissions();
@@ -24,9 +24,12 @@ export default function QRPairScreen({ navigation }) {
     try {
       const parsed = JSON.parse(data.data || '{}');
       if (!parsed.baseUrl) throw new Error('Invalid QR');
-      setBaseUrl(parsed.baseUrl);
-      connectWs(parsed.wsUrl || parsed.baseUrl.replace(/^http/, 'ws') + '/ws', parsed.wsSubscribe || null);
-      await client.health();
+      await client.healthAt(parsed.baseUrl, parsed.token || '');
+      await setConnection(parsed.baseUrl, parsed.token || '');
+      connectWs(
+        withWsToken(parsed.wsUrl || parsed.baseUrl.replace(/^http/, 'ws') + '/ws', parsed.token || ''),
+        parsed.wsSubscribe || null,
+      );
       navigation.replace('Campaigns');
     } catch (err) {
       Alert.alert('Pair failed', err.message);

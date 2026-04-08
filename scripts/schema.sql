@@ -1,5 +1,11 @@
--- Enable pgvector if available; ignore errors if missing
-CREATE EXTENSION IF NOT EXISTS vector;
+DO $$
+BEGIN
+  CREATE EXTENSION IF NOT EXISTS vector;
+EXCEPTION
+  WHEN OTHERS THEN
+    RAISE NOTICE 'pgvector extension unavailable, continuing without vector support';
+END
+$$;
 
 CREATE TABLE IF NOT EXISTS campaigns (
   id UUID PRIMARY KEY,
@@ -85,7 +91,7 @@ CREATE TABLE IF NOT EXISTS context_embeddings (
   task_id UUID REFERENCES tasks(id) ON DELETE CASCADE,
   relevance_type TEXT,
   text_snippet TEXT,
-  embedding vector(1536),
+  embedding TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

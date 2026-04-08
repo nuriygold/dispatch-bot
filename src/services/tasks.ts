@@ -30,11 +30,19 @@ export async function createTask(input: {
 }
 
 export async function updateTaskStatus(taskId: string, status: Task['status']) {
-  await pool.query('UPDATE tasks SET status = $2, updated_at = NOW() WHERE id = $1', [taskId, status]);
+  await pool.query(
+    `UPDATE tasks
+     SET status = $2,
+         updated_at = NOW(),
+         started_at = CASE WHEN $2 = 'running' THEN COALESCE(started_at, NOW()) ELSE started_at END,
+         completed_at = CASE WHEN $2 IN ('done', 'failed', 'partial', 'cancelled') THEN NOW() ELSE completed_at END
+     WHERE id = $1`,
+    [taskId, status],
+  );
 }
 
 export async function cancelTask(taskId: string) {
-  await pool.query('UPDATE tasks SET status = $2, updated_at = NOW() WHERE id = $1', [taskId, 'cancelled']);
+  await updateTaskStatus(taskId, 'cancelled');
 }
 
 export async function getTask(id: string): Promise<Task | null> {

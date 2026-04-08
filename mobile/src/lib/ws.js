@@ -1,9 +1,17 @@
 let socket = null;
 let listeners = new Set();
 let subscribePayload = null;
+let reconnectTimer = null;
+
+export function withWsToken(url, token) {
+  if (!token) return url;
+  const glue = url.includes('?') ? '&' : '?';
+  return `${url}${glue}token=${encodeURIComponent(token)}`;
+}
 
 export function connectWs(url, subscribeMsg) {
   if (socket) socket.close();
+  if (reconnectTimer) clearTimeout(reconnectTimer);
   subscribePayload = subscribeMsg || null;
   socket = new WebSocket(url);
   socket.onopen = () => {
@@ -17,7 +25,7 @@ export function connectWs(url, subscribeMsg) {
   };
   socket.onclose = () => {
     // naive reconnect
-    setTimeout(() => connectWs(url, subscribePayload), 2000);
+    reconnectTimer = setTimeout(() => connectWs(url, subscribePayload), 2000);
   };
 }
 

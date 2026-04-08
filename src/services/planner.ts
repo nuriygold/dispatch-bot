@@ -1,13 +1,14 @@
 import { v4 as uuid } from 'uuid';
 import { pool } from '../db';
 import { chatCompletion } from './modelRouter';
-import { logger } from '../logger';
 import { emitPlanSwitched } from './events';
+import { z } from 'zod';
 
-interface PlanOption {
+export interface PlanOption {
   name: string; // Plan A/B/C
   tasks: Array<{
     id: string;
+    key: string;
     title: string;
     description?: string;
     dependencies: string[];
@@ -16,9 +17,65 @@ interface PlanOption {
   estimated_duration_seconds?: number;
 }
 
+const RawTaskSchema = z.object({
+  id: z.string().optional(),
+  key: z.string().optional(),
+  title: z.string().min(1),
+  description: z.string().optional(),
+  deps: z.array(z.string()).optional(),
+  dependencies: z.array(z.string()).optional(),
+});
+
+const RawPlanSchema = z.object({
+  name: z.string().min(1).optional(),
+  tasks: z.array(RawTaskSchema).min(1),
+  estimated_cost_cents: z.number().int().nonnegative().optional(),
+  estimated_duration_seconds: z.number().int().nonnegative().optional(),
+});
+
+const RawPlansSchema = z.object({ plans: z.array(RawPlanSchema).min(1) });
+
+function extractJson(text: string) {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  return fenced?.[1] || text;
+}
+
+function normalizePlans(raw: z.infer<typeof RawPlansSchema>): PlanOption[] {
+  return raw.plans.map((plan, planIdx) => {
+    const keyToId = new Map<string, string>();
+    const tasks = plan.tasks.map((task, taskIdx) => {
+      const key = task.key || task.id || task.title || `task-${taskIdx + 1}`;
+      const id = uuid();
+      keyToId.set(key, id);
+      return {
+        id,
+        key,
+        title: task.title,
+        description: task.description,
+        dependencies: task.deps || task.dependencies || [],
+      };
+    });
+
+    return {
+      name: plan.name || `Plan ${String.fromCharCode(65 + planIdx)}`,
+      estimated_cost_cents: plan.estimated_cost_cents,
+      estimated_duration_seconds: plan.estimated_duration_seconds,
+      tasks: tasks.map((task) => ({
+        ...task,
+        dependencies: task.dependencies
+          .map((dep) => keyToId.get(dep))
+          .filter((dep): dep is string => Boolean(dep)),
+      })),
+    };
+  });
+}
+
 export async function generatePlans(campaignId: string, goal: string): Promise<PlanOption[]> {
-  const systemPrompt = `You are a planning agent. Given a goal, propose three alternative execution plans (Plan A/B/C). Each plan is a DAG of tasks with dependencies. Keep tasks concise.`;
-  const userPrompt = `Goal: ${goal}\nReturn JSON with array plans:[{name, tasks:[{title, description, deps[]}], estimated_cost_cents, estimated_duration_seconds}]`;
+  const systemPrompt = `You are a planning agent. Given a goal, propose three alternative execution plans (Plan A/B/C). Each plan is a DAG of tasks with dependencies. Return strict JSON only.`;
+  const userPrompt = `Goal: ${goal}
+Return JSON with shape:
+{"plans":[{"name":"Plan A","tasks":[{"key":"task-1","title":"Short title","description":"Optional detail","deps":["other-task-key"]}],"estimated_cost_cents":0,"estimated_duration_seconds":0}]}
+Dependency values must reference task keys in the same plan.`;
 
   const resp = await chatCompletion('planning', [
     { role: 'system', content: systemPrompt },
@@ -28,27 +85,14 @@ export async function generatePlans(campaignId: string, goal: string): Promise<P
   const text = resp?.choices?.[0]?.message?.content;
   if (!text) throw new Error('planning response empty');
 
-  let parsed: any;
+  let parsed: z.infer<typeof RawPlansSchema>;
   try {
-    parsed = JSON.parse(text.replace(/```json|```/g, ''));
+    parsed = RawPlansSchema.parse(JSON.parse(extractJson(String(text))));
   } catch (err) {
-    logger.warn({ text }, 'Failed to parse plan JSON, falling back to stub');
-    parsed = { plans: [{ name: 'Plan A', tasks: [{ title: goal, deps: [] }] }] };
+    throw new Error(`planning response did not match expected JSON schema: ${(err as Error).message}`);
   }
 
-  const plans: PlanOption[] = (parsed.plans || []).map((p: any, idx: number) => {
-    return {
-      name: p.name || `Plan ${String.fromCharCode(65 + idx)}`,
-      estimated_cost_cents: p.estimated_cost_cents,
-      estimated_duration_seconds: p.estimated_duration_seconds,
-      tasks: (p.tasks || []).map((t: any) => ({
-        id: uuid(),
-        title: t.title,
-        description: t.description,
-        dependencies: t.deps || t.dependencies || [],
-      })),
-    };
-  });
+  const plans = normalizePlans(parsed);
 
   // persist
   const planId = uuid();
@@ -69,13 +113,14 @@ export async function approvePlan(campaignId: string, planName?: string): Promis
 
   // mark plan approved
   await pool.query(`UPDATE plans SET status='approved' WHERE id=$1`, [latest.id]);
+  await pool.query(`UPDATE campaigns SET status='executing', updated_at=NOW() WHERE id=$1`, [campaignId]);
 
   // create tasks from selected plan
   for (const task of selected.tasks || []) {
     await pool.query(
       `INSERT INTO tasks (id, campaign_id, title, description, dependencies, status)
        VALUES ($1,$2,$3,$4,$5,'planned') ON CONFLICT DO NOTHING`,
-      [task.id || uuid(), campaignId, task.title, task.description || null, task.dependencies || []],
+      [task.id, campaignId, task.title, task.description || null, task.dependencies || []],
     );
   }
 

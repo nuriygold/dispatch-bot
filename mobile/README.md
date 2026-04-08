@@ -1,17 +1,21 @@
-# Expo App (stub)
+# Expo App
 
 Screens:
-- Pair (manual URL entry; future: QR)
+- Pair (manual URL entry or QR payload)
 - Campaign list/detail
 - Plan selection
 - Task submit
 
 Networking:
 - REST to orchestrator base URL after pairing.
-- WS connect to `<base>/ws` for live progress (listener wired, UI pending).
+- WS connect to `<base>/ws` for live progress and periodic campaign snapshots.
 
-TODO:
-- Display live steps/progress via WS.
-- QR scanning for pairing.
-- Budget/time display per campaign.
-- Controls: pause/cancel/switch plan mid-run.
+Running:
+1) `npm install`
+2) `npm run start`
+3) Pair with `http://HOST:3000` or scan a QR JSON payload such as `{"baseUrl":"http://HOST:3000","wsUrl":"ws://HOST:3000/ws"}`.
+
+Remaining TODO:
+- Polish the live progress UI for long-running campaigns.
+- Add a dedicated memory search screen.
+- Add production-grade auth before exposing outside a trusted network.

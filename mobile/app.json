@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "Dispatch Bot",
+    "slug": "dispatch-bot",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#ffffff"
+      }
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Dispatch Bot to scan pairing QR codes."
+        }
+      ]
+    ]
+  }
+}
