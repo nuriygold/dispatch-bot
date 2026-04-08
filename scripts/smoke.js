@@ -2,17 +2,42 @@
 const WebSocket = require('ws');
 
 const baseUrl = (process.env.SMOKE_BASE_URL || 'http://localhost:3000').replace(/\/$/, '');
-const wsUrl = baseUrl.replace(/^http/, 'ws') + (process.env.WEB_SOCKET_PATH || '/ws');
+const authToken = process.env.SMOKE_API_TOKEN || process.env.DISPATCH_API_TOKEN || '';
+const wsBaseUrl = baseUrl.replace(/^http/, 'ws') + (process.env.WEB_SOCKET_PATH || '/ws');
+const wsUrl = authToken ? `${wsBaseUrl}?token=${encodeURIComponent(authToken)}` : wsBaseUrl;
+
+function authHeaders() {
+  if (!authToken) return {};
+  return {
+    Authorization: `Bearer ${authToken}`,
+    'x-dispatch-token': authToken,
+  };
+}
 
 async function request(path, opts = {}) {
   const res = await fetch(`${baseUrl}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    headers: { 'Content-Type': 'application/json', ...authHeaders(), ...(opts.headers || {}) },
     ...opts,
   });
   if (!res.ok) {
     throw new Error(`${opts.method || 'GET'} ${path} failed: ${res.status} ${await res.text()}`);
   }
   return res.json();
+}
+
+async function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForTaskStatus(taskId, expectedStatuses, timeoutMs = 30000) {
+  const statuses = Array.isArray(expectedStatuses) ? expectedStatuses : [expectedStatuses];
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const task = await request(`/tasks/${taskId}`);
+    if (statuses.includes(task.status)) return task;
+    await sleep(500);
+  }
+  throw new Error(`timed out waiting for task ${taskId} to reach ${statuses.join(', ')}`);
 }
 
 function waitForProgress(campaignId, timeoutMs = 30000) {
@@ -67,6 +92,35 @@ async function main() {
 
   const progress = await waitForProgress(campaign.id);
   console.log('ws_progress', progress.tasks?.length || 0);
+
+  await request(`/campaigns/${campaign.id}/pause`, { method: 'POST' });
+  console.log('paused', campaign.id);
+
+  const pausedTask = await request(`/campaigns/${campaign.id}/tasks`, {
+    method: 'POST',
+    body: JSON.stringify({
+      title: 'Paused smoke task',
+      description: 'Should remain planned until resume',
+    }),
+  });
+  const pausedSnapshot = await request(`/tasks/${pausedTask.id}`);
+  console.log('paused_task_status', pausedSnapshot.status);
+
+  await request(`/campaigns/${campaign.id}/resume`, { method: 'POST' });
+  console.log('resumed', campaign.id);
+  await waitForTaskStatus(pausedTask.id, ['queued', 'running', 'done']);
+
+  const cancelTask = await request(`/campaigns/${campaign.id}/tasks`, {
+    method: 'POST',
+    body: JSON.stringify({
+      title: 'Cancel smoke task',
+      description: 'This task will be cancelled before execution',
+      dependencies: [pausedTask.id],
+    }),
+  });
+  await request(`/tasks/${cancelTask.id}/cancel`, { method: 'POST' });
+  const cancelledSnapshot = await waitForTaskStatus(cancelTask.id, 'cancelled');
+  console.log('cancelled_task_status', cancelledSnapshot.status);
 
   const memory = await request(`/campaigns/${campaign.id}/memory?q=${encodeURIComponent(campaign.title)}`);
   console.log('memory_rows', memory.length);

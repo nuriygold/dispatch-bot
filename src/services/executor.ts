@@ -85,7 +85,7 @@ export async function enqueueExecution(payload: TaskPayload, delay = 0) {
   });
 }
 
-async function executeTask(payload: TaskPayload) {
+export async function executeTask(payload: TaskPayload) {
   const { taskId, campaignId, title, description } = payload;
   try {
     const current = await getTask(taskId);

@@ -10,12 +10,18 @@ import { logger } from '../logger';
 import { generatePlans, approvePlan } from '../services/planner';
 import { queryMemory } from '../services/memory';
 import { createCampaignSchema, createTaskSchema, createPlanSchema, memoryQuerySchema } from './schemas';
+import { requireApiToken } from '../middleware/auth';
 
 export const router = express.Router();
 router.use(express.json());
 
 router.get('/health', (_req, res) => {
   res.json({ ok: true, time: new Date().toISOString() });
+});
+
+router.use((req, res, next) => {
+  if (req.path.startsWith('/callbacks/')) return next();
+  return requireApiToken(req, res, next);
 });
 
 router.post('/campaigns', async (req, res, next) => {
@@ -79,8 +85,11 @@ router.post('/campaigns/:id/tasks', async (req, res, next) => {
     const task = await createTask({
       campaign_id: req.params.id,
       ...parsed,
+      status: 'planned',
     });
-    await enqueueExecution({ taskId: task.id, campaignId: req.params.id, title: task.title, description: task.description });
+    await enqueueReadyTasks(req.params.id, async (taskId, title, description) => {
+      await enqueueExecution({ taskId, campaignId: req.params.id, title, description });
+    });
     res.status(201).json(task);
   } catch (err) {
     next(err);
@@ -132,10 +141,4 @@ router.post('/callbacks/:campaignId', async (req, res) => {
   ]);
   logger.info({ campaignId }, 'callback received');
   res.json({ ok: true });
-});
-
-// basic error handler
-router.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  logger.error({ err }, 'API error');
-  res.status(500).json({ error: 'internal_error', detail: err.message });
 });

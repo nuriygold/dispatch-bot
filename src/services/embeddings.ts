@@ -2,7 +2,8 @@ import fetch from 'node-fetch';
 import { config } from '../config';
 
 export async function embedText(text: string): Promise<number[]> {
-  const url = `${config.azure.endpoint}/openai/deployments/${config.azure.deployments.gpt35}/embeddings?api-version=2024-02-15-preview`;
+  const deployment = config.azure.deployments.embeddings || config.azure.deployments.gpt35;
+  const url = `${config.azure.endpoint}/openai/deployments/${deployment}/embeddings?api-version=2024-02-15-preview`;
   const res = await fetch(url, {
     method: 'POST',
     headers: {

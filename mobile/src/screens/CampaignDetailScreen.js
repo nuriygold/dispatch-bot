@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, Button, FlatList, Alert, TouchableOpacity } from 'react-native';
 import { client } from '../lib/api';
-import { connectWs, onMessage } from '../lib/ws';
+import { connectWs, onMessage, withWsToken } from '../lib/ws';
 
 export default function CampaignDetailScreen({ route, navigation }) {
   const { id } = route.params;
@@ -26,7 +26,7 @@ export default function CampaignDetailScreen({ route, navigation }) {
 
   useEffect(() => {
     load().catch((e) => Alert.alert('Error', e.message));
-    const wsUrl = client.baseUrl.replace(/^http/, 'ws') + '/ws';
+    const wsUrl = withWsToken(client.baseUrl.replace(/^http/, 'ws') + '/ws', client.token);
     connectWs(wsUrl, { type: 'subscribe', campaignId: id });
     const off = onMessage((msg) => {
       if (msg.type === 'task_completed' || msg.type === 'task_started' || msg.type === 'task_progress') {
@@ -67,7 +67,9 @@ export default function CampaignDetailScreen({ route, navigation }) {
         <Text>Status: {paused ? 'paused' : campaign?.status}</Text>
         <Button title={paused ? 'Resume' : 'Pause'} onPress={togglePause} />
       </View>
-      <Text style={{ marginTop: 4 }}>Spend: {(spend / 100).toFixed(2)} / {budget ? (budget / 100).toFixed(2) : '—'} USD</Text>
+      <Text style={{ marginTop: 4 }}>
+        Spend: {(spend / 100).toFixed(2)} / {budget ? (budget / 100).toFixed(2) : '—'} USD
+      </Text>
       <Text style={{ marginTop: 12, fontWeight: '600' }}>Tasks</Text>
       <FlatList
         data={tasks}
@@ -76,6 +78,11 @@ export default function CampaignDetailScreen({ route, navigation }) {
           <View style={{ paddingVertical: 6 }}>
             <Text>{item.title}</Text>
             <Text style={{ color: '#555' }}>{item.status}</Text>
+            {!!item.output && (
+              <Text style={{ color: '#444', marginTop: 4 }} numberOfLines={3}>
+                {item.output}
+              </Text>
+            )}
             {item.status === 'running' && (
               <TouchableOpacity
                 style={{ marginTop: 4, padding: 6, backgroundColor: '#eee', borderRadius: 6 }}

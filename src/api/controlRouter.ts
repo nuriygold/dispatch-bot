@@ -5,8 +5,10 @@ import { emitCampaignPaused, emitCampaignResumed, emitTaskCancelled } from '../s
 import { getCampaignQueue } from '../queueMap';
 import { getCampaignProgress } from '../services/progress';
 import { enqueueExecution } from '../services/executor';
+import { requireApiToken } from '../middleware/auth';
 
 export const controlRouter = express.Router();
+controlRouter.use(requireApiToken);
 
 controlRouter.post('/campaigns/:id/pause', async (req, res, next) => {
   try {

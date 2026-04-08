@@ -52,7 +52,7 @@ export async function queryMemory(campaignId: string, q: string) {
        FROM context_embeddings ce
        JOIN tasks t ON ce.task_id = t.id
        WHERE t.campaign_id = $1 AND ce.embedding IS NOT NULL
-       ORDER BY ce.embedding <=> $2::vector
+       ORDER BY ce.embedding::vector <=> $2::vector
        LIMIT 10`,
       [campaignId, toVectorLiteral(queryEmbedding)],
     );

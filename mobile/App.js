@@ -14,9 +14,9 @@ export default function App() {
   return (
     <NavigationContainer>
       <Stack.Navigator>
-      <Stack.Screen name="Pair" component={PairScreen} />
-      <Stack.Screen name="QRPair" component={QRPairScreen} />
-      <Stack.Screen name="Campaigns" component={CampaignsScreen} />
+        <Stack.Screen name="Pair" component={PairScreen} />
+        <Stack.Screen name="QRPair" component={QRPairScreen} />
+        <Stack.Screen name="Campaigns" component={CampaignsScreen} />
         <Stack.Screen name="CampaignDetail" component={CampaignDetailScreen} />
         <Stack.Screen name="PlanSelect" component={PlanSelectScreen} />
         <Stack.Screen name="Task" component={TaskScreen} />
