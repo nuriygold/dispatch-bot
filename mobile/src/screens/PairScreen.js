@@ -1,14 +1,22 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, Button, Alert } from 'react-native';
-import { setBaseUrl, client } from '../lib/api';
+import { loadBaseUrl, setBaseUrl, client } from '../lib/api';
 import { connectWs } from '../lib/ws';
 
 export default function PairScreen({ navigation }) {
   const [url, setUrl] = useState('');
 
+  React.useEffect(() => {
+    loadBaseUrl()
+      .then((saved) => {
+        if (saved) setUrl(saved);
+      })
+      .catch(() => {});
+  }, []);
+
   const pair = async () => {
     try {
-      setBaseUrl(url);
+      await setBaseUrl(url);
       const wsUrl = url.replace(/^http/, 'ws') + '/ws';
       connectWs(wsUrl);
       await client.health();
@@ -29,6 +37,7 @@ export default function PairScreen({ navigation }) {
         style={{ borderWidth: 1, padding: 10, borderRadius: 8 }}
       />
       <Button title="Pair" onPress={pair} />
+      <Button title="Scan QR" onPress={() => navigation.navigate('QRPair')} />
     </View>
   );
 }

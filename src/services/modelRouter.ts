@@ -3,6 +3,25 @@ import { config } from '../config';
 
 type ModelKind = 'planning' | 'execution' | 'extraction' | 'vision';
 
+export interface ChatCompletionResponse {
+  choices?: Array<{
+    message?: {
+      content?: unknown;
+      tool_calls?: Array<{
+        id: string;
+        function: {
+          name: string;
+          arguments?: unknown;
+        };
+      }>;
+    };
+  }>;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+  };
+}
+
 export function selectDeployment(kind: ModelKind): { deployment: string; maxTokens: number } {
   if (kind === 'planning' || kind === 'vision') {
     return { deployment: config.azure.deployments.gpt4o, maxTokens: 8000 };
@@ -13,7 +32,7 @@ export function selectDeployment(kind: ModelKind): { deployment: string; maxToke
   return { deployment: config.azure.deployments.gpt35, maxTokens: 4000 };
 }
 
-export async function chatCompletion(kind: ModelKind, messages: any[], tools?: any[]) {
+export async function chatCompletion(kind: ModelKind, messages: any[], tools?: any[]): Promise<ChatCompletionResponse> {
   const { deployment, maxTokens } = selectDeployment(kind);
   const url = `${config.azure.endpoint}/openai/deployments/${deployment}/chat/completions?api-version=2024-02-15-preview`;
 
@@ -39,5 +58,5 @@ export async function chatCompletion(kind: ModelKind, messages: any[], tools?: a
     throw new Error(`Azure request failed: ${res.status} ${text}`);
   }
 
-  return res.json();
+  return (await res.json()) as ChatCompletionResponse;
 }

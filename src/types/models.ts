@@ -1,4 +1,4 @@
-export type CampaignStatus = 'planning' | 'executing' | 'completed' | 'failed';
+export type CampaignStatus = 'planning' | 'executing' | 'paused' | 'completed' | 'failed';
 export type TaskStatus = 'planned' | 'queued' | 'running' | 'done' | 'failed' | 'partial' | 'cancelled';
 
 export interface Campaign {

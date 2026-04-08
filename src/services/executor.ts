@@ -1,14 +1,12 @@
-import { Job } from 'bullmq';
-import { createTaskWorker, TaskPayload } from '../queue';
+import { Job, Worker } from 'bullmq';
+import { TaskPayload } from '../queue';
 import { getCampaignQueue } from '../queueMap';
-import { Worker, Queue } from 'bullmq';
 import { redis } from '../redis';
 import { pool } from '../db';
 import { updateTaskStatus, enqueueReadyTasks } from './tasks';
 import { logger } from '../logger';
 import { chatCompletion } from './modelRouter';
 import { fetchLatestPlan } from './planner';
-import { pool } from '../db';
 import { v4 as uuid } from 'uuid';
 import { availableTools } from './toolRegistry';
 import { runToolProcess } from './toolProcess';
@@ -17,28 +15,85 @@ import { getCampaignBudget, isCampaignPaused } from './campaigns';
 import { config } from '../config';
 import { emitTaskCompleted, emitTaskStarted, emitTaskProgress } from './events';
 import { getTask } from './tasks';
-import { emitTaskProgress } from './events';
+import { recordTaskSummary } from './memory';
 
-export async function enqueueExecution(payload: TaskPayload) {
-  const cq = getCampaignQueue(payload.campaignId);
-  const paused = await isCampaignPaused(payload.campaignId);
-  if (paused) {
-    await cq.add('execute', payload, {
-      delay: 5000,
-      attempts: 2,
-      removeOnComplete: true,
-      removeOnFail: false,
-      jobId: `${payload.campaignId}:${payload.taskId}`,
-    });
-    return;
+const campaignWorkers = new Map<string, Worker>();
+
+function parseToolArguments(raw: unknown): Record<string, unknown> {
+  if (!raw) return {};
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
   }
-  await cq.add('execute', payload, { attempts: 2, removeOnComplete: true, removeOnFail: false, jobId: `${payload.campaignId}:${payload.taskId}` });
+  return raw as Record<string, unknown>;
 }
 
-export function startExecutionWorkers() {
-  // Default queue worker (legacy)
-  createTaskWorker(async (job: Job<TaskPayload>) => {
-    const { taskId, campaignId, title } = job.data;
+function toOpenAITools(tools: ReturnType<typeof availableTools>) {
+  return tools.map((tool) => ({
+    type: 'function',
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.input_schema,
+    },
+  }));
+}
+
+function messageContentToText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === 'string') return part;
+        if (part && typeof part === 'object' && 'text' in part) return String((part as { text: unknown }).text);
+        return '';
+      })
+      .filter(Boolean)
+      .join('\n');
+  }
+  return '';
+}
+
+async function ensureCampaignWorker(campaignId: string) {
+  const qname = `tasks:${campaignId}`;
+  if (campaignWorkers.has(qname)) return campaignWorkers.get(qname)!;
+
+  const worker = new Worker<TaskPayload>(
+    qname,
+    async (job: Job<TaskPayload>) => {
+      await executeTask(job.data);
+    },
+    { connection: redis, concurrency: 3 },
+  );
+  worker.on('failed', (job, err) => logger.error({ jobId: job?.id, err }, 'campaign worker failed'));
+  campaignWorkers.set(qname, worker);
+  return worker;
+}
+
+export async function enqueueExecution(payload: TaskPayload, delay = 0) {
+  await ensureCampaignWorker(payload.campaignId);
+  const cq = getCampaignQueue(payload.campaignId);
+  await cq.add('execute', payload, {
+    attempts: 2,
+    removeOnComplete: true,
+    removeOnFail: false,
+    delay,
+    jobId: delay ? `${payload.campaignId}:${payload.taskId}:${Date.now()}` : `${payload.campaignId}:${payload.taskId}`,
+  });
+}
+
+async function executeTask(payload: TaskPayload) {
+  const { taskId, campaignId, title, description } = payload;
+  try {
+    const current = await getTask(taskId);
+    if (!current || current.status === 'done' || current.status === 'cancelled' || current.status === 'running') {
+      logger.debug({ taskId, status: current?.status }, 'skipping task execution');
+      return;
+    }
+
     const budgetOk = await getCampaignBudget(campaignId);
     if (budgetOk?.blocked) {
       logger.warn({ campaignId }, 'budget exceeded; skipping task');
@@ -46,22 +101,17 @@ export function startExecutionWorkers() {
       return;
     }
     if (await isCampaignPaused(campaignId)) {
-      await enqueueExecution({ taskId, campaignId, title });
-      return;
-    }
-    const current = await getTask(taskId);
-    if (current?.status === 'cancelled') {
-      logger.warn({ taskId }, 'task already cancelled');
+      await updateTaskStatus(taskId, 'queued');
+      await enqueueExecution(payload, 5000);
       return;
     }
     await updateTaskStatus(taskId, 'running');
     emitTaskStarted({ campaignId, taskId, title });
 
-    // Load latest approved plan for dependency context (future: respect DAG)
     const plan = await fetchLatestPlan(campaignId);
 
     const systemPrompt = `You are an execution agent. Use tools when useful and keep responses concise. Tool availability may change based on environment.`;
-    const userPrompt = `Task: ${title}. Plan context: ${JSON.stringify(plan?.content || {})}`;
+    const userPrompt = `Task: ${title}\nDescription: ${description || ''}\nPlan context: ${JSON.stringify(plan?.content || {})}`;
 
     const tools = availableTools({
       hasInternet: !config.offlineMode,
@@ -70,13 +120,14 @@ export function startExecutionWorkers() {
       allowlist: config.toolAllowlist,
       denylist: config.toolDenylist,
     });
+    const openAITools = toOpenAITools(tools);
     const messages: any[] = [
       { role: 'system', content: `${systemPrompt} Available tools: ${tools.map((t) => t.name).join(', ')}` },
       { role: 'user', content: userPrompt },
     ];
 
     let finalText = '';
-    let totalUsage = { prompt_tokens: 0, completion_tokens: 0 };
+    const totalUsage = { prompt_tokens: 0, completion_tokens: 0 };
     const start = Date.now();
     for (let step = 0; step < 6; step++) {
       const latest = await getTask(taskId);
@@ -85,15 +136,17 @@ export function startExecutionWorkers() {
         break;
       }
       if (await isCampaignPaused(campaignId)) {
-        await enqueueExecution({ taskId, campaignId, title });
+        await updateTaskStatus(taskId, 'queued');
+        await enqueueExecution(payload, 5000);
         return;
       }
-      const ai = await chatCompletion('execution', messages, tools);
+      const ai = await chatCompletion('execution', messages, openAITools);
       totalUsage.prompt_tokens += ai?.usage?.prompt_tokens || 0;
       totalUsage.completion_tokens += ai?.usage?.completion_tokens || 0;
       const msg = ai?.choices?.[0]?.message;
       if (!msg) break;
       if (msg.tool_calls && msg.tool_calls.length) {
+        messages.push(msg);
         for (const call of msg.tool_calls) {
           try {
             emitTaskProgress({
@@ -103,7 +156,7 @@ export function startExecutionWorkers() {
               tool: call.function.name,
               status: 'running',
             });
-            const result = runToolProcess(call.function.name, call.function.arguments);
+            const result = runToolProcess(call.function.name, parseToolArguments(call.function.arguments));
             messages.push({ role: 'tool', tool_call_id: call.id, content: result });
             await pool.query(
               `INSERT INTO task_progress (id, campaign_id, task_id, step, tool, status, snippet, ts)
@@ -138,7 +191,7 @@ export function startExecutionWorkers() {
         continue;
       }
       if (msg.content) {
-        finalText = msg.content;
+        finalText = messageContentToText(msg.content);
         break;
       }
     }
@@ -161,33 +214,29 @@ export function startExecutionWorkers() {
     );
 
     await updateTaskStatus(taskId, 'done');
+    if (finalText) {
+      await recordTaskSummary(taskId, finalText, 'summary');
+    }
     emitTaskCompleted({ campaignId, taskId, title, success: true, output: finalText });
     await enqueueReadyTasks(campaignId, async (readyId, readyTitle, readyDesc) => {
       await enqueueExecution({ taskId: readyId, campaignId, title: readyTitle, description: readyDesc });
     });
     logger.info({ taskId }, 'task completed');
-  });
-
-  // Campaign-specific workers (created on startup and refreshed)
-  const campaignWorkers = new Map<string, Worker>();
-  async function ensureCampaignWorkers() {
-    const { rows } = await pool.query<{ id: string }>('SELECT id FROM campaigns');
-    for (const row of rows) {
-      const qname = `tasks:${row.id}`;
-      if (campaignWorkers.has(qname)) continue;
-      const worker = new Worker<TaskPayload>(
-        qname,
-        async (job: Job<TaskPayload>) => {
-          await enqueueExecution(job.data);
-        },
-        { connection: redis, concurrency: 3 },
-      );
-      worker.on('failed', (job, err) => logger.error({ jobId: job?.id, err }, 'campaign worker failed'));
-      campaignWorkers.set(qname, worker);
-    }
+  } catch (err) {
+    await updateTaskStatus(taskId, 'failed');
+    logger.error({ taskId, err }, 'task execution failed');
+    emitTaskCompleted({ campaignId, taskId, title, success: false, output: (err as Error).message });
+    throw err;
   }
-  ensureCampaignWorkers().catch((err) => logger.error({ err }, 'ensure workers failed'));
-  setInterval(() => ensureCampaignWorkers().catch(() => {}), 30000);
 }
 
-// Future: add DAG-aware scheduler, budget enforcement, tool execution handlers.
+export function startExecutionWorkers() {
+  async function ensureExistingCampaignWorkers() {
+    const { rows } = await pool.query<{ id: string }>('SELECT id FROM campaigns');
+    for (const row of rows) {
+      await ensureCampaignWorker(row.id);
+    }
+  }
+  ensureExistingCampaignWorkers().catch((err) => logger.error({ err }, 'ensure workers failed'));
+  setInterval(() => ensureExistingCampaignWorkers().catch(() => {}), 30000);
+}

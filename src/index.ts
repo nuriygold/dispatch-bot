@@ -13,7 +13,6 @@ import { controlRouter } from './api/controlRouter';
 import rateLimit from 'express-rate-limit';
 import { events } from './services/events';
 import { getCampaignProgress } from './services/progress';
-import { startDispatcher } from './dispatcher';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -51,7 +50,7 @@ wss.on('connection', (socket) => {
       try {
         const snapshot = await getCampaignProgress(subscribedCampaign);
         socket.send(JSON.stringify({ type: 'campaign_progress', campaignId: subscribedCampaign, ...snapshot }));
-      } catch (err) {
+      } catch (_err) {
         // ignore
       }
     }
@@ -76,7 +75,6 @@ wss.on('connection', (socket) => {
 
 startExecutionWorkers();
 startNightlyCron();
-startDispatcher();
 
 server.listen(config.port, () => {
   logger.info(`API listening on http://localhost:${config.port}`);

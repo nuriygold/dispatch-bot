@@ -1,14 +1,20 @@
 import express from 'express';
 import { redis } from '../redis';
 import { pool } from '../db';
-import { taskQueue } from '../queue';
+import { getCampaignQueue } from '../queueMap';
 
 export const adminRouter = express.Router();
 
 adminRouter.get('/admin/queue', async (_req, res, next) => {
   try {
-    const counts = await taskQueue.getJobCounts('wait', 'active', 'completed', 'failed', 'delayed');
-    res.json(counts);
+    const { rows } = await pool.query<{ id: string; title: string }>('SELECT id, title FROM campaigns ORDER BY created_at DESC');
+    const campaigns = await Promise.all(
+      rows.map(async (campaign) => ({
+        campaign,
+        counts: await getCampaignQueue(campaign.id).getJobCounts('wait', 'active', 'completed', 'failed', 'delayed'),
+      })),
+    );
+    res.json({ campaigns });
   } catch (err) {
     next(err);
   }

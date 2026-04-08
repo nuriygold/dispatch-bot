@@ -7,7 +7,7 @@ import { v4 as uuid } from 'uuid';
 import crypto from 'crypto';
 import { pool } from '../db';
 import { logger } from '../logger';
-import { generatePlans, approvePlan, fetchLatestPlan } from '../services/planner';
+import { generatePlans, approvePlan } from '../services/planner';
 import { queryMemory } from '../services/memory';
 import { createCampaignSchema, createTaskSchema, createPlanSchema, memoryQuerySchema } from './schemas';
 

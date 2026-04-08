@@ -22,6 +22,17 @@
 3) `npm run migrate`
 4) `npm run dev`
 
+## Checks
+- `npm run build` verifies the TypeScript backend.
+- `npm run lint` runs ESLint over backend TypeScript.
+- `npm run smoke` runs an end-to-end check against a running orchestrator at `SMOKE_BASE_URL` (default `http://localhost:3000`): health, campaign creation, plan generation, approval, WebSocket progress, and memory query.
+
+## Mobile
+1) `cd mobile`
+2) `npm install`
+3) `npm run start`
+4) Pair manually with the orchestrator URL or scan a QR payload like `{"baseUrl":"http://HOST:3000","wsUrl":"ws://HOST:3000/ws"}`.
+
 ## Notes
 - Tools run as child processes under `packages/tools/` with allowlists/timeouts.
 - Planner/executor receive the live tool list, so prompts won’t assume unavailable tools.

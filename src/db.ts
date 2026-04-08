@@ -4,7 +4,7 @@ import { logger } from './logger';
 
 export const pool = new Pool({ connectionString: config.postgresUrl });
 
-pool.on('error', (err) => {
+pool.on('error', (err: Error) => {
   logger.error({ err }, 'Unexpected PG error');
 });
 

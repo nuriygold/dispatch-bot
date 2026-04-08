@@ -15,6 +15,6 @@ export async function embedText(text: string): Promise<number[]> {
     const t = await res.text();
     throw new Error(`embedding failed: ${res.status} ${t}`);
   }
-  const data = await res.json();
+  const data = (await res.json()) as { data?: Array<{ embedding?: number[] }> };
   return data.data?.[0]?.embedding || [];
 }

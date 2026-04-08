@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, Button, FlatList, Alert, TouchableOpacity } from 'react-native';
 import { client } from '../lib/api';
 import { connectWs, onMessage } from '../lib/ws';
-import { useNavigation } from '@react-navigation/native';
 
 export default function CampaignDetailScreen({ route, navigation }) {
   const { id } = route.params;
@@ -16,9 +15,13 @@ export default function CampaignDetailScreen({ route, navigation }) {
   const load = async () => {
     const c = await client.getCampaign(id);
     const t = await client.listTasks(id);
+    const p = await client.getProgress(id);
     setCampaign(c);
     setPaused(c.status === 'paused');
     setTasks(t);
+    setSteps(p.steps || {});
+    setSpend(p.spend_cents || 0);
+    setBudget(p.cost_budget_cents || null);
   };
 
   useEffect(() => {
@@ -49,8 +52,8 @@ export default function CampaignDetailScreen({ route, navigation }) {
   }, []);
 
   const togglePause = async () => {
-    if (paused) await fetch(`${client.baseUrl}/campaigns/${id}/resume`, { method: 'POST' });
-    else await fetch(`${client.baseUrl}/campaigns/${id}/pause`, { method: 'POST' });
+    if (paused) await client.resumeCampaign(id);
+    else await client.pauseCampaign(id);
     setPaused(!paused);
   };
 
@@ -77,7 +80,8 @@ export default function CampaignDetailScreen({ route, navigation }) {
               <TouchableOpacity
                 style={{ marginTop: 4, padding: 6, backgroundColor: '#eee', borderRadius: 6 }}
                 onPress={async () => {
-                  await fetch(`${client.baseUrl}/tasks/${item.id}/cancel`, { method: 'POST' });
+                  await client.cancelTask(item.id);
+                  load().catch(() => {});
                 }}
               >
                 <Text>Cancel</Text>

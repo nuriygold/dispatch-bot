@@ -24,7 +24,7 @@ export default function QRPairScreen({ navigation }) {
     try {
       const parsed = JSON.parse(data.data || '{}');
       if (!parsed.baseUrl) throw new Error('Invalid QR');
-      setBaseUrl(parsed.baseUrl);
+      await setBaseUrl(parsed.baseUrl);
       connectWs(parsed.wsUrl || parsed.baseUrl.replace(/^http/, 'ws') + '/ws', parsed.wsSubscribe || null);
       await client.health();
       navigation.replace('Campaigns');
