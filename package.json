@@ -9,6 +9,7 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "migrate": "node scripts/migrate.js",
     "smoke": "node scripts/smoke.js",
+    "azure:preflight": "node scripts/azure-preflight.js",
     "test:integration": "node --require ts-node/register/transpile-only --test test/**/*.test.js"
   },
   "dependencies": {

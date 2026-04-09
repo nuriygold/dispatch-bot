@@ -34,7 +34,8 @@ export function selectDeployment(kind: ModelKind): { deployment: string; maxToke
 
 export async function chatCompletion(kind: ModelKind, messages: any[], tools?: any[]): Promise<ChatCompletionResponse> {
   const { deployment, maxTokens } = selectDeployment(kind);
-  const url = `${config.azure.endpoint}/openai/deployments/${deployment}/chat/completions?api-version=2024-02-15-preview`;
+  const apiVersion = config.azure.apiVersions.chatCompletions;
+  const url = `${config.azure.endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`;
 
   const body = {
     messages,
@@ -55,8 +56,17 @@ export async function chatCompletion(kind: ModelKind, messages: any[], tools?: a
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Azure request failed: ${res.status} ${text}`);
+    throw new Error(
+      `Azure chat request failed for kind=${kind} deployment=${deployment} apiVersion=${apiVersion}: ${res.status} ${text}`,
+    );
   }
 
-  return (await res.json()) as ChatCompletionResponse;
+  const data = (await res.json()) as ChatCompletionResponse;
+  if (!data?.choices?.length) {
+    throw new Error(
+      `Azure chat response missing choices for kind=${kind} deployment=${deployment} apiVersion=${apiVersion}`,
+    );
+  }
+
+  return data;
 }
