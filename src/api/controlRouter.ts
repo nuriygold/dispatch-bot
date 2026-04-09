@@ -5,12 +5,11 @@ import { emitCampaignPaused, emitCampaignResumed, emitTaskCancelled } from '../s
 import { getCampaignQueue } from '../queueMap';
 import { getCampaignProgress } from '../services/progress';
 import { enqueueExecution } from '../services/executor';
-import { requireApiToken } from '../middleware/auth';
+import { requireAdminToken } from '../middleware/auth';
 
 export const controlRouter = express.Router();
-controlRouter.use(requireApiToken);
 
-controlRouter.post('/campaigns/:id/pause', async (req, res, next) => {
+controlRouter.post('/campaigns/:id/pause', requireAdminToken, async (req, res, next) => {
   try {
     await pool.query(`UPDATE campaigns SET status='paused' WHERE id=$1`, [req.params.id]);
     await getCampaignQueue(req.params.id).pause();
@@ -21,7 +20,7 @@ controlRouter.post('/campaigns/:id/pause', async (req, res, next) => {
   }
 });
 
-controlRouter.post('/campaigns/:id/resume', async (req, res, next) => {
+controlRouter.post('/campaigns/:id/resume', requireAdminToken, async (req, res, next) => {
   try {
     await pool.query(`UPDATE campaigns SET status='executing' WHERE id=$1`, [req.params.id]);
     await getCampaignQueue(req.params.id).resume();
@@ -35,7 +34,7 @@ controlRouter.post('/campaigns/:id/resume', async (req, res, next) => {
   }
 });
 
-controlRouter.post('/tasks/:id/cancel', async (req, res, next) => {
+controlRouter.post('/tasks/:id/cancel', requireAdminToken, async (req, res, next) => {
   try {
     await cancelTask(req.params.id);
     // fetch campaign for event
@@ -57,7 +56,7 @@ controlRouter.post('/tasks/:id/cancel', async (req, res, next) => {
   }
 });
 
-controlRouter.get('/campaigns/:id/progress', async (req, res, next) => {
+controlRouter.get('/campaigns/:id/progress', requireAdminToken, async (req, res, next) => {
   try {
     const data = await getCampaignProgress(req.params.id);
     res.json(data);

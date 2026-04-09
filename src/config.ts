@@ -36,6 +36,9 @@ export const config = {
     .filter(Boolean),
   offlineMode: process.env.OFFLINE_MODE === '1' || process.env.OFFLINE_MODE === 'true',
   toolTimeoutMs: Number(process.env.TOOL_TIMEOUT_MS || 20000),
+  executionRequeueDelayMs: Number(process.env.EXECUTION_REQUEUE_DELAY_MS || 5000),
+  wsProgressIntervalMs: Number(process.env.WS_PROGRESS_INTERVAL_MS || 5000),
+  queueStuckThresholdMs: Number(process.env.QUEUE_STUCK_THRESHOLD_MS || 300000),
   cost: {
     inputTokenCents: Number(process.env.COST_PER_INPUT_TOKEN_CENTS || 0),
     outputTokenCents: Number(process.env.COST_PER_OUTPUT_TOKEN_CENTS || 0),

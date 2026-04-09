@@ -1,22 +1,24 @@
 #!/usr/bin/env node
+require('dotenv').config();
 const WebSocket = require('ws');
 
 const baseUrl = (process.env.SMOKE_BASE_URL || 'http://localhost:3000').replace(/\/$/, '');
-const authToken = process.env.SMOKE_API_TOKEN || process.env.DISPATCH_API_TOKEN || '';
+const apiToken = process.env.SMOKE_API_TOKEN || process.env.DISPATCH_API_TOKEN || '';
+const adminToken = process.env.SMOKE_ADMIN_TOKEN || process.env.DISPATCH_ADMIN_TOKEN || apiToken;
 const wsBaseUrl = baseUrl.replace(/^http/, 'ws') + (process.env.WEB_SOCKET_PATH || '/ws');
-const wsUrl = authToken ? `${wsBaseUrl}?token=${encodeURIComponent(authToken)}` : wsBaseUrl;
+const wsUrl = apiToken ? `${wsBaseUrl}?token=${encodeURIComponent(apiToken)}` : wsBaseUrl;
 
-function authHeaders() {
-  if (!authToken) return {};
+function authHeaders(token = apiToken) {
+  if (!token) return {};
   return {
-    Authorization: `Bearer ${authToken}`,
-    'x-dispatch-token': authToken,
+    Authorization: `Bearer ${token}`,
+    'x-dispatch-token': token,
   };
 }
 
-async function request(path, opts = {}) {
+async function request(path, opts = {}, token = apiToken) {
   const res = await fetch(`${baseUrl}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...authHeaders(), ...(opts.headers || {}) },
+    headers: { 'Content-Type': 'application/json', ...authHeaders(token), ...(opts.headers || {}) },
     ...opts,
   });
   if (!res.ok) {
@@ -93,7 +95,7 @@ async function main() {
   const progress = await waitForProgress(campaign.id);
   console.log('ws_progress', progress.tasks?.length || 0);
 
-  await request(`/campaigns/${campaign.id}/pause`, { method: 'POST' });
+  await request(`/campaigns/${campaign.id}/pause`, { method: 'POST' }, adminToken);
   console.log('paused', campaign.id);
 
   const pausedTask = await request(`/campaigns/${campaign.id}/tasks`, {
@@ -106,7 +108,7 @@ async function main() {
   const pausedSnapshot = await request(`/tasks/${pausedTask.id}`);
   console.log('paused_task_status', pausedSnapshot.status);
 
-  await request(`/campaigns/${campaign.id}/resume`, { method: 'POST' });
+  await request(`/campaigns/${campaign.id}/resume`, { method: 'POST' }, adminToken);
   console.log('resumed', campaign.id);
   await waitForTaskStatus(pausedTask.id, ['queued', 'running', 'done']);
 
@@ -118,7 +120,7 @@ async function main() {
       dependencies: [pausedTask.id],
     }),
   });
-  await request(`/tasks/${cancelTask.id}/cancel`, { method: 'POST' });
+  await request(`/tasks/${cancelTask.id}/cancel`, { method: 'POST' }, adminToken);
   const cancelledSnapshot = await waitForTaskStatus(cancelTask.id, 'cancelled');
   console.log('cancelled_task_status', cancelledSnapshot.status);
 

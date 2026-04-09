@@ -21,9 +21,9 @@ export function createApp() {
       legacyHeaders: false,
     }),
   );
-  app.use(router);
   app.use(adminRouter);
   app.use(controlRouter);
+  app.use(router);
 
   app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     logger.error({ err }, 'API error');
