@@ -81,7 +81,7 @@ export async function enqueueExecution(payload: TaskPayload, delay = 0) {
     removeOnComplete: true,
     removeOnFail: false,
     delay,
-    jobId: delay ? `${payload.campaignId}:${payload.taskId}:${Date.now()}` : `${payload.campaignId}:${payload.taskId}`,
+    jobId: delay ? `${payload.campaignId}:${payload.taskId}:delayed` : `${payload.campaignId}:${payload.taskId}`,
   });
 }
 
@@ -102,7 +102,7 @@ export async function executeTask(payload: TaskPayload) {
     }
     if (await isCampaignPaused(campaignId)) {
       await updateTaskStatus(taskId, 'queued');
-      await enqueueExecution(payload, 5000);
+      await enqueueExecution(payload, config.executionRequeueDelayMs);
       return;
     }
     await updateTaskStatus(taskId, 'running');
@@ -137,7 +137,7 @@ export async function executeTask(payload: TaskPayload) {
       }
       if (await isCampaignPaused(campaignId)) {
         await updateTaskStatus(taskId, 'queued');
-        await enqueueExecution(payload, 5000);
+        await enqueueExecution(payload, config.executionRequeueDelayMs);
         return;
       }
       const ai = await chatCompletion('execution', messages, openAITools);
@@ -217,12 +217,27 @@ export async function executeTask(payload: TaskPayload) {
     if (finalText) {
       await recordTaskSummary(taskId, finalText, 'summary');
     }
+    logger.info(
+      {
+        taskId,
+        campaignId,
+        durationMs,
+        costCents,
+        promptTokens: totalUsage.prompt_tokens || 0,
+        completionTokens: totalUsage.completion_tokens || 0,
+      },
+      'task completed',
+    );
     emitTaskCompleted({ campaignId, taskId, title, success: true, output: finalText });
     await enqueueReadyTasks(campaignId, async (readyId, readyTitle, readyDesc) => {
       await enqueueExecution({ taskId: readyId, campaignId, title: readyTitle, description: readyDesc });
     });
-    logger.info({ taskId }, 'task completed');
   } catch (err) {
+    await pool.query(
+      `INSERT INTO task_results (id, task_id, success, output, error_message, tokens_input, tokens_output, cost_cents, duration_ms)
+       VALUES ($1,$2,false,$3,$4,$5,$6,$7,$8)`,
+      [uuid(), taskId, null, (err as Error).message, 0, 0, 0, 0],
+    );
     await updateTaskStatus(taskId, 'failed');
     logger.error({ taskId, err }, 'task execution failed');
     emitTaskCompleted({ campaignId, taskId, title, success: false, output: (err as Error).message });

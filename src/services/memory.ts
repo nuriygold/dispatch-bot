@@ -48,7 +48,7 @@ export async function queryMemory(campaignId: string, q: string) {
   try {
     const queryEmbedding = await embedText(q);
     const { rows } = await pool.query(
-      `SELECT text_snippet, relevance_type, created_at
+      `SELECT ce.text_snippet, ce.relevance_type, ce.created_at
        FROM context_embeddings ce
        JOIN tasks t ON ce.task_id = t.id
        WHERE t.campaign_id = $1 AND ce.embedding IS NOT NULL
@@ -61,9 +61,9 @@ export async function queryMemory(campaignId: string, q: string) {
     // ignore if vector extension unavailable
   }
   const fallback = await pool.query(
-    `SELECT text_snippet, relevance_type, created_at FROM context_embeddings ce
+    `SELECT ce.text_snippet, ce.relevance_type, ce.created_at FROM context_embeddings ce
      JOIN tasks t ON ce.task_id = t.id
-     WHERE t.campaign_id = $1 AND text_snippet ILIKE $2
+     WHERE t.campaign_id = $1 AND ce.text_snippet ILIKE $2
      ORDER BY ce.created_at DESC LIMIT 10`,
     [campaignId, `%${q}%`],
   );

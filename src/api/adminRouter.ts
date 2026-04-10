@@ -3,11 +3,11 @@ import { redis } from '../redis';
 import { pool } from '../db';
 import { getCampaignQueue } from '../queueMap';
 import { requireAdminToken } from '../middleware/auth';
+import { config } from '../config';
 
 export const adminRouter = express.Router();
-adminRouter.use(requireAdminToken);
 
-adminRouter.get('/admin/queue', async (_req, res, next) => {
+adminRouter.get('/admin/queue', requireAdminToken, async (_req, res, next) => {
   try {
     const { rows } = await pool.query<{ id: string; title: string; status: string }>(
       'SELECT id, title, status FROM campaigns ORDER BY created_at DESC',
@@ -41,7 +41,7 @@ adminRouter.get('/admin/queue', async (_req, res, next) => {
   }
 });
 
-adminRouter.get('/admin/spend/:campaignId', async (req, res, next) => {
+adminRouter.get('/admin/spend/:campaignId', requireAdminToken, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
       `SELECT COALESCE(SUM(cost_cents),0) as spend_cents FROM task_results tr
@@ -54,11 +54,49 @@ adminRouter.get('/admin/spend/:campaignId', async (req, res, next) => {
   }
 });
 
-adminRouter.get('/admin/health', async (_req, res, next) => {
+adminRouter.get('/admin/health', requireAdminToken, async (_req, res, next) => {
   try {
     await pool.query('SELECT 1');
     await redis.ping();
-    res.json({ ok: true });
+    const [queueRes, executionRes] = await Promise.all([
+      pool.query<{
+        queued: string;
+        running: string;
+        failed: string;
+        stuck_running: string;
+      }>(
+        `SELECT
+           COUNT(*) FILTER (WHERE status = 'queued') AS queued,
+           COUNT(*) FILTER (WHERE status = 'running') AS running,
+           COUNT(*) FILTER (WHERE status = 'failed') AS failed,
+           COUNT(*) FILTER (
+             WHERE status = 'running'
+               AND started_at IS NOT NULL
+               AND EXTRACT(EPOCH FROM (NOW() - started_at)) * 1000 > $1
+           ) AS stuck_running
+         FROM tasks`,
+        [config.queueStuckThresholdMs],
+      ),
+      pool.query<{ failed_executions_24h: string }>(
+        `SELECT COUNT(*) AS failed_executions_24h
+         FROM task_results
+         WHERE success = false
+           AND created_at >= NOW() - INTERVAL '24 hours'`,
+      ),
+    ]);
+    res.json({
+      ok: true,
+      queue: {
+        queued: Number(queueRes.rows[0]?.queued || 0),
+        running: Number(queueRes.rows[0]?.running || 0),
+        failed: Number(queueRes.rows[0]?.failed || 0),
+        stuck_running: Number(queueRes.rows[0]?.stuck_running || 0),
+        stuck_threshold_ms: config.queueStuckThresholdMs,
+      },
+      executions: {
+        failed_24h: Number(executionRes.rows[0]?.failed_executions_24h || 0),
+      },
+    });
   } catch (err) {
     next(err);
   }

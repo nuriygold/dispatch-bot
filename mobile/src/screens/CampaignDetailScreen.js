@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, Button, FlatList, Alert, TouchableOpacity } from 'react-native';
+import { View, Text, Button, FlatList, Alert, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { client } from '../lib/api';
-import { connectWs, onMessage, withWsToken } from '../lib/ws';
+import { connectWs, onMessage, onWsStatus, withWsToken } from '../lib/ws';
 
 export default function CampaignDetailScreen({ route, navigation }) {
   const { id } = route.params;
@@ -11,17 +11,25 @@ export default function CampaignDetailScreen({ route, navigation }) {
   const [steps, setSteps] = useState({});
   const [spend, setSpend] = useState(0);
   const [budget, setBudget] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [busyAction, setBusyAction] = useState('');
+  const [wsState, setWsState] = useState('connecting');
 
   const load = async () => {
-    const c = await client.getCampaign(id);
-    const t = await client.listTasks(id);
-    const p = await client.getProgress(id);
-    setCampaign(c);
-    setPaused(c.status === 'paused');
-    setTasks(t);
-    setSteps(p.steps || {});
-    setSpend(p.spend_cents || 0);
-    setBudget(p.cost_budget_cents || null);
+    setLoading(true);
+    try {
+      const c = await client.getCampaign(id);
+      const t = await client.listTasks(id);
+      const p = await client.getProgress(id);
+      setCampaign(c);
+      setPaused(c.status === 'paused');
+      setTasks(t);
+      setSteps(p.steps || {});
+      setSpend(p.spend_cents || 0);
+      setBudget(p.cost_budget_cents || null);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -48,28 +56,43 @@ export default function CampaignDetailScreen({ route, navigation }) {
         setBudget(msg.cost_budget_cents || null);
       }
     });
-    return () => off();
+    const offStatus = onWsStatus((status) => setWsState(status.state));
+    return () => {
+      off();
+      offStatus();
+    };
   }, []);
 
   const togglePause = async () => {
-    if (paused) await client.resumeCampaign(id);
-    else await client.pauseCampaign(id);
-    setPaused(!paused);
+    try {
+      setBusyAction(paused ? 'resume' : 'pause');
+      if (paused) await client.resumeCampaign(id);
+      else await client.pauseCampaign(id);
+      setPaused(!paused);
+    } catch (err) {
+      Alert.alert('Action failed', err.message);
+    } finally {
+      setBusyAction('');
+    }
   };
 
   return (
     <View style={{ flex: 1, padding: 16 }}>
       <Text style={{ fontSize: 20, fontWeight: '600' }}>{campaign?.title}</Text>
+      <Text style={{ marginTop: 4, color: wsState === 'connected' ? '#2b7a0b' : '#8a6d3b' }}>
+        Live updates: {wsState}
+      </Text>
       <Button title="Generate Plan" onPress={() => navigation.navigate('PlanSelect', { id })} />
       <Button title="Submit Task" onPress={() => navigation.navigate('Task', { id })} />
       <Button title="Switch Plan" onPress={() => navigation.navigate('PlanSelect', { id })} />
       <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, gap: 8 }}>
         <Text>Status: {paused ? 'paused' : campaign?.status}</Text>
-        <Button title={paused ? 'Resume' : 'Pause'} onPress={togglePause} />
+        <Button title={busyAction ? 'Working...' : paused ? 'Resume' : 'Pause'} onPress={togglePause} />
       </View>
       <Text style={{ marginTop: 4 }}>
         Spend: {(spend / 100).toFixed(2)} / {budget ? (budget / 100).toFixed(2) : '—'} USD
       </Text>
+      {loading ? <ActivityIndicator style={{ marginTop: 16 }} /> : null}
       <Text style={{ marginTop: 12, fontWeight: '600' }}>Tasks</Text>
       <FlatList
         data={tasks}

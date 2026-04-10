@@ -37,7 +37,7 @@ export function createServer() {
           // ignore periodic progress send errors
         }
       }
-    }, 5000);
+    }, config.wsProgressIntervalMs);
 
     socket.on('message', (data) => {
       try {
